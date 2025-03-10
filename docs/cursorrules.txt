@@ -1,0 +1,41 @@
+# Cursor Rules for BaseCamp Chronicals
+
+[General]
+project_name = BaseCamp Chronicals
+platform = Browser
+game_type = 2D RPG, Sci-Fi Survival, Trenches Ethos
+
+[Game Engine]
+enable_AI_agents = true
+npc_dialogue_mode = unfiltered
+npc_action_API = true
+side_quests_enabled = true
+base_building_enabled = true
+base_defense_enabled = true
+
+[Progression]
+reward_system = unique_base_items, XP, currency
+progression_mechanics = level_up, base_upgrades, unlockable_skills
+
+[Blockchain]
+integrate_layer2 = true
+blockchain_provider = Base Coinbase
+in_game_currency = BaseCampCoin
+nft_optional = true
+
+[Frontend]
+framework = React  # Alternatively, Vue.js if preferred
+rendering_engine = Phaser.js
+responsive_design = true
+
+[Backend]
+server_framework = Express (Node.js)
+real_time_updates = Socket.io
+security = JWT, input_validation
+
+[Deployment]
+containerized = true
+docker = enabled
+cloud_hosting = AWS  # or preferred provider
+
+# End of .cursorrules
