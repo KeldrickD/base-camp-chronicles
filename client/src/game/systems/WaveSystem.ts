@@ -1,136 +1,211 @@
 import Phaser from 'phaser';
-import { EnemySystem } from './EnemySystem';
+import { EnemySystem, EnemyType } from './EnemySystem';
 
-interface WaveEnemy {
-  type: string;
-  count: number;
-  delay: number;
-  path?: number;
-}
-
-interface Wave {
-  enemies: WaveEnemy[];
-  baseDelay: number;
-  reward: {
-    metal: number;
-    energy: number;
-    crystals: number;
-  };
+interface WaveConfig {
+  enemies: {
+    type: EnemyType;
+    count: number;
+    delay: number;
+    pathIndex?: number;
+  }[];
+  reward: number;
+  bossWave?: boolean;
 }
 
 export class WaveSystem {
   private scene: Phaser.Scene;
   private enemySystem: EnemySystem;
-  private currentWave: number = 0;
-  private totalWaves: number = 30;
-  private waveInProgress: boolean = false;
-  private remainingEnemies: number = 0;
-  private spawnTimer?: Phaser.Time.TimerEvent;
-  private nextWaveTimer?: Phaser.Time.TimerEvent;
-  private waves: Wave[];
+  private currentWave: number;
+  private isWaveActive: boolean;
+  private spawnTimer: number;
+  private currentWaveConfig: WaveConfig | null;
+  private currentEnemyIndex: number;
+  private currentEnemyCount: number;
+  private totalWaves: number;
+  private difficultyMultiplier: number;
 
   constructor(scene: Phaser.Scene, enemySystem: EnemySystem) {
     this.scene = scene;
     this.enemySystem = enemySystem;
-    this.waves = this.generateWaves();
-    this.setupEventListeners();
+    this.currentWave = 0;
+    this.isWaveActive = false;
+    this.spawnTimer = 0;
+    this.currentWaveConfig = null;
+    this.currentEnemyIndex = 0;
+    this.currentEnemyCount = 0;
+    this.totalWaves = 10;
+    this.difficultyMultiplier = 1;
   }
 
-  private setupEventListeners(): void {
-    // Handle wave queries
-    this.scene.events.on('queryWave', (callback: (wave: number) => void) => {
-      callback(this.currentWave + 1);
-    });
-
-    // Handle enemy queries
-    this.scene.events.on('queryEnemies', (callback: (count: number) => void) => {
-      callback(this.remainingEnemies);
-    });
+  private getWaveConfig(waveNumber: number): WaveConfig {
+    const baseConfig = this.getBaseWaveConfig(waveNumber);
+    this.applyDifficultyScaling(baseConfig, waveNumber);
+    return baseConfig;
   }
 
-  private generateWaves(): Wave[] {
-    const waves: Wave[] = [];
-    const totalWaves = 20;
+  private getBaseWaveConfig(waveNumber: number): WaveConfig {
+    // Boss waves every 5 waves
+    const isBossWave = waveNumber % 5 === 0;
 
-    for (let i = 0; i < totalWaves; i++) {
-      const wave = this.generateWave(i);
-      waves.push(wave);
+    if (isBossWave) {
+      return this.getBossWaveConfig(waveNumber);
     }
 
-    return waves;
-  }
-
-  private generateWave(waveIndex: number): Wave {
-    const baseDelay = Math.max(500, 2000 - waveIndex * 50); // Spawn rate increases with each wave
-    const wave: Wave = {
+    // Regular waves with increasing complexity
+    const config: WaveConfig = {
       enemies: [],
-      baseDelay,
-      reward: {
-        metal: Math.floor(50 + waveIndex * 10),
-        energy: Math.floor(30 + waveIndex * 5),
-        crystals: Math.floor(10 + waveIndex * 2)
-      }
+      reward: 100 + waveNumber * 50,
+      bossWave: false
     };
 
-    // Add basic enemies
-    wave.enemies.push({
-      type: 'scout',
-      count: Math.floor(5 + waveIndex),
-      delay: baseDelay
+    // Add basic enemies (decrease count as waves progress)
+    const basicCount = Math.max(5, 15 - Math.floor(waveNumber / 2));
+    config.enemies.push({
+      type: EnemyType.BASIC,
+      count: basicCount,
+      delay: 1000
     });
 
-    // Add tanks starting from wave 3
-    if (waveIndex >= 2) {
-      wave.enemies.push({
-        type: 'tank',
-        count: Math.floor(1 + waveIndex * 0.3),
-        delay: baseDelay * 2
+    // Add fast enemies (increase count as waves progress)
+    if (waveNumber >= 2) {
+      const fastCount = Math.min(10, Math.floor(waveNumber / 2));
+      config.enemies.push({
+        type: EnemyType.FAST,
+        count: fastCount,
+        delay: 800
       });
     }
 
-    // Add speeders starting from wave 5
-    if (waveIndex >= 4) {
-      wave.enemies.push({
-        type: 'speeder',
-        count: Math.floor(2 + waveIndex * 0.5),
-        delay: baseDelay * 0.8
+    // Add tank enemies
+    if (waveNumber >= 3) {
+      const tankCount = Math.min(5, Math.floor(waveNumber / 3));
+      config.enemies.push({
+        type: EnemyType.TANK,
+        count: tankCount,
+        delay: 2000
       });
     }
 
-    // Add shielded enemies starting from wave 7
-    if (waveIndex >= 6) {
-      wave.enemies.push({
-        type: 'shielded',
-        count: Math.floor(1 + waveIndex * 0.2),
-        delay: baseDelay * 1.5
+    // Add shielded enemies
+    if (waveNumber >= 4) {
+      const shieldedCount = Math.min(3, Math.floor(waveNumber / 4));
+      config.enemies.push({
+        type: EnemyType.SHIELDED,
+        count: shieldedCount,
+        delay: 3000
       });
     }
 
-    // Add swarm enemies starting from wave 10
-    if (waveIndex >= 9) {
-      wave.enemies.push({
-        type: 'swarm',
-        count: Math.floor(5 + waveIndex),
-        delay: baseDelay * 0.5
-      });
-    }
-
-    // Distribute enemies across different paths
-    wave.enemies.forEach(enemy => {
-      enemy.path = Math.floor(Math.random() * 3); // Assuming 3 paths
+    // Randomize enemy paths
+    config.enemies.forEach(enemy => {
+      enemy.pathIndex = Math.floor(Math.random() * 2); // Assuming 2 paths
     });
 
-    return wave;
+    return config;
   }
 
-  public update(_delta: number): void {
-    // Check wave completion
-    if (this.waveInProgress && this.enemySystem.getActiveEnemyCount() === 0) {
-      this.waveInProgress = false;
-      this.scene.events.emit('waveCompleted', {
-        wave: this.currentWave,
-        nextWaveDelay: 10000
+  private getBossWaveConfig(waveNumber: number): WaveConfig {
+    const config: WaveConfig = {
+      enemies: [
+        {
+          type: EnemyType.BOSS,
+          count: 1,
+          delay: 2000
+        }
+      ],
+      reward: 500 + waveNumber * 100,
+      bossWave: true
+    };
+
+    // Add support enemies
+    if (waveNumber >= 10) {
+      config.enemies.push({
+        type: EnemyType.SHIELDED,
+        count: 2,
+        delay: 1000
       });
+    }
+
+    return config;
+  }
+
+  private applyDifficultyScaling(config: WaveConfig, waveNumber: number): void {
+    const scalingFactor = 1 + (waveNumber - 1) * 0.1; // 10% increase per wave
+
+    config.enemies.forEach(enemy => {
+      // Scale enemy count (except for boss waves)
+      if (!config.bossWave) {
+        enemy.count = Math.ceil(enemy.count * this.difficultyMultiplier);
+      }
+
+      // Scale spawn delay (faster spawns in later waves)
+      enemy.delay = Math.max(500, enemy.delay * (1 - (waveNumber - 1) * 0.05));
+    });
+
+    // Scale reward
+    config.reward = Math.ceil(config.reward * scalingFactor);
+  }
+
+  public startNextWave(): void {
+    if (this.isWaveActive) return;
+
+    this.currentWave++;
+    this.isWaveActive = true;
+    this.currentWaveConfig = this.getWaveConfig(this.currentWave);
+    this.currentEnemyIndex = 0;
+    this.currentEnemyCount = 0;
+    this.spawnTimer = 0;
+
+    // Emit wave start event
+    this.scene.events.emit('waveStart', {
+      waveNumber: this.currentWave,
+      config: this.currentWaveConfig
+    });
+  }
+
+  public update(delta: number): void {
+    if (!this.isWaveActive || !this.currentWaveConfig) return;
+
+    this.spawnTimer += delta;
+
+    const currentEnemy = this.currentWaveConfig.enemies[this.currentEnemyIndex];
+    if (currentEnemy && this.spawnTimer >= currentEnemy.delay) {
+      this.spawnTimer = 0;
+      this.enemySystem.spawnEnemy(currentEnemy.type, currentEnemy.pathIndex);
+      this.currentEnemyCount++;
+
+      if (this.currentEnemyCount >= currentEnemy.count) {
+        this.currentEnemyIndex++;
+        this.currentEnemyCount = 0;
+      }
+
+      // Check if wave is complete
+      if (this.currentEnemyIndex >= this.currentWaveConfig.enemies.length) {
+        this.checkWaveCompletion();
+      }
+    }
+  }
+
+  private checkWaveCompletion(): void {
+    if (this.enemySystem.getActiveEnemyCount() === 0) {
+      this.completeWave();
+    }
+  }
+
+  private completeWave(): void {
+    if (!this.currentWaveConfig) return;
+
+    this.isWaveActive = false;
+    
+    // Emit wave complete event with rewards
+    this.scene.events.emit('waveComplete', {
+      waveNumber: this.currentWave,
+      reward: this.currentWaveConfig.reward
+    });
+
+    // Check if all waves are complete
+    if (this.currentWave >= this.totalWaves) {
+      this.scene.events.emit('allWavesComplete');
     }
   }
 
@@ -138,22 +213,29 @@ export class WaveSystem {
     return this.currentWave;
   }
 
+  public isWaveInProgress(): boolean {
+    return this.isWaveActive;
+  }
+
+  public setDifficultyMultiplier(multiplier: number): void {
+    this.difficultyMultiplier = multiplier;
+  }
+
+  public setTotalWaves(waves: number): void {
+    this.totalWaves = waves;
+  }
+
+  public reset(): void {
+    this.currentWave = 0;
+    this.isWaveActive = false;
+    this.spawnTimer = 0;
+    this.currentWaveConfig = null;
+    this.currentEnemyIndex = 0;
+    this.currentEnemyCount = 0;
+    this.difficultyMultiplier = 1;
+  }
+
   public isWaveSetComplete(): boolean {
-    return this.currentWave >= this.totalWaves;
-  }
-
-  public startNextWave(): void {
-    this.currentWave++;
-    this.waveInProgress = true;
-    this.scene.events.emit('waveStarted', { wave: this.currentWave });
-  }
-
-  public getRemainingEnemies(): number {
-    return this.remainingEnemies;
-  }
-
-  public destroy(): void {
-    if (this.spawnTimer) this.spawnTimer.destroy();
-    if (this.nextWaveTimer) this.nextWaveTimer.destroy();
+    return this.currentWave >= this.totalWaves && !this.isWaveActive;
   }
 } 

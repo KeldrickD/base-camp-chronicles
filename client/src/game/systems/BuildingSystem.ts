@@ -22,7 +22,7 @@ export enum BuildingType {
   COLLECTOR = 'COLLECTOR'
 }
 
-interface BuildingStats {
+export interface BuildingStats {
   level: number;
   health: number;
   maxHealth: number;
